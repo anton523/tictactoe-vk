@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Крестики-нолики</title>
+<style>
+  :root { --bg:#f2f3f5; --card:#fff; --text:#222; --accent:#2688eb; --x:#e64646; --o:#2688eb; --line:#dce1e6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#19191a; --card:#232324; --text:#e1e3e6; --line:#363738; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+         font-family:-apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+         display:flex; align-items:center; justify-content:center; padding:16px; }
+  .wrap { width:100%; max-width:360px; text-align:center; }
+  h1 { font-size:22px; margin:0 0 8px; }
+  #status { min-height:24px; margin-bottom:12px; font-size:17px; }
+  .score { display:flex; justify-content:space-around; margin-bottom:12px; font-size:15px; }
+  .score b { font-size:20px; display:block; }
+  .board { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .cell { aspect-ratio:1; background:var(--card); border:1px solid var(--line); border-radius:12px;
+          font-size:56px; font-weight:700; cursor:pointer; color:var(--text); padding:0; }
+  .cell.x { color:var(--x); } .cell.o { color:var(--o); }
+  .cell.win { background:#ffe58a33; border-color:#f5b800; }
+  .cell:disabled { cursor:default; }
+  .btns { margin-top:16px; display:flex; gap:8px; }
+  .btns button { flex:1; padding:12px; border:0; border-radius:10px; font-size:15px; cursor:pointer;
+                 background:var(--accent); color:#fff; }
+  .btns button.sec { background:var(--card); color:var(--accent); border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Крестики-нолики</h1>
+  <div class="score">
+    <div>Вы (X)<b id="sWin">0</b></div>
+    <div>Ничья<b id="sDraw">0</b></div>
+    <div>Бот (O)<b id="sLose">0</b></div>
+  </div>
+  <div id="status">Ваш ход</div>
+  <div class="board" id="board"></div>
+  <div class="btns">
+    <button id="restart">Новая игра</button>
+    <button id="level" class="sec">Бот: лёгкий</button>
+  </div>
+</div>
+
+<!-- VK Bridge: нужен, чтобы игра работала как VK Mini App. Вне ВК просто ничего не делает. -->
+<script src="https://unpkg.com/@vkontakte/vk-bridge@2.14.1/dist/browser.min.js"></script>
+<script>
+  try { if (window.vkBridge) vkBridge.send('VKWebAppInit'); } catch (e) {}
+
+  const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const levelBtn = document.getElementById('level');
+  let board, over, hard = false;
+  const score = { win:0, draw:0, lose:0 };
+  try { Object.assign(score, JSON.parse(localStorage.getItem('ttt-score')) || {}); } catch (e) {}
+
+  const cells = [];
+  for (let i = 0; i < 9; i++) {
+    const b = document.createElement('button');
+    b.className = 'cell';
+    b.onclick = () => playerMove(i);
+    boardEl.appendChild(b);
+    cells.push(b);
+  }
+
+  function winner(b) {
+    for (const l of LINES) {
+      const [a,c,d] = l;
+      if (b[a] && b[a] === b[c] && b[a] === b[d]) return { who:b[a], line:l };
+    }
+    return b.includes(null) ? null : { who:'draw', line:[] };
+  }
+
+  function render() {
+    board.forEach((v, i) => {
+      cells[i].textContent = v || '';
+      cells[i].className = 'cell' + (v ? ' ' + v.toLowerCase() : '');
+      cells[i].disabled = over || !!v;
+    });
+    document.getElementById('sWin').textContent = score.win;
+    document.getElementById('sDraw').textContent = score.draw;
+    document.getElementById('sLose').textContent = score.lose;
+  }
+
+  function finish(res) {
+    over = true;
+    if (res.who === 'X') { score.win++; statusEl.textContent = 'Вы победили! 🎉'; }
+    else if (res.who === 'O') { score.lose++; statusEl.textContent = 'Бот победил'; }
+    else { score.draw++; statusEl.textContent = 'Ничья'; }
+    try { localStorage.setItem('ttt-score', JSON.stringify(score)); } catch (e) {}
+    render();
+    res.line.forEach(i => cells[i].classList.add('win'));
+  }
+
+  function playerMove(i) {
+    if (over || board[i]) return;
+    board[i] = 'X';
+    let res = winner(board);
+    if (res) return finish(res);
+    board[botMove()] = 'O';
+    res = winner(board);
+    if (res) return finish(res);
+    statusEl.textContent = 'Ваш ход';
+    render();
+  }
+
+  // Лёгкий бот: выигрывает/блокирует, иначе случайно. Сложный: минимакс (не проигрывает).
+  function botMove() {
+    const free = board.map((v,i) => v ? null : i).filter(v => v !== null);
+    if (hard) return minimax(board, 'O').idx;
+    for (const p of ['O','X']) for (const i of free) {
+      board[i] = p; const w = winner(board); board[i] = null;
+      if (w && w.who === p) return i;
+    }
+    return free[Math.floor(Math.random() * free.length)];
+  }
+
+  function minimax(b, p) {
+    const w = winner(b);
+    if (w) return { s: w.who === 'O' ? 1 : w.who === 'X' ? -1 : 0 };
+    let best = { s: p === 'O' ? -2 : 2 };
+    for (let i = 0; i < 9; i++) if (!b[i]) {
+      b[i] = p; const r = minimax(b, p === 'O' ? 'X' : 'O'); b[i] = null;
+      if (p === 'O' ? r.s > best.s : r.s < best.s) best = { s:r.s, idx:i };
+    }
+    return best;
+  }
+
+  function reset() {
+    board = Array(9).fill(null); over = false;
+    statusEl.textContent = 'Ваш ход'; render();
+  }
+  document.getElementById('restart').onclick = reset;
+  levelBtn.onclick = () => { hard = !hard; levelBtn.textContent = 'Бот: ' + (hard ? 'сложный' : 'лёгкий'); reset(); };
+  reset();
+</script>
+</body>
+</html>
